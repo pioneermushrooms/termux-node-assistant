@@ -51,16 +51,38 @@ The "server" is any computer on your network that will run the AI.
 
 1. Download `server.py` from this repo to that machine
 2. Install dependencies: `pip install flask openai`
-3. Create a `.env` file in the same folder as `server.py` with your settings (see options below)
+3. Create a `.env` file **in the same folder** as `server.py` with your settings (see options below)
 4. Run: `python server.py`
+
+> **Important:** Create the `.env` file with a proper text editor (Notepad, VS Code, nano — not PowerShell `echo`). PowerShell can add invisible characters that cause crashes. Open the editor, type your settings, save as `.env`.
 
 The server reads all config from the `.env` file — no need to set environment variables in your terminal. Pick one option and create your `.env` accordingly:
 
 ---
 
-**Option A: OpenAI — easiest**
+**Option A: OpenAI + local Whisper — best value (recommended)**
 
-Requires an [OpenAI API key](https://platform.openai.com/api-keys) (~$0.01 per voice interaction).
+Uses your OpenAI key for the LLM (GPT-4o-mini, ~$0.004/interaction) and free local Whisper for speech-to-text.
+
+Requires an [OpenAI API key](https://platform.openai.com/api-keys). Get one at platform.openai.com — sign in, click "Create new secret key", copy it.
+
+```bash
+pip install flask openai faster-whisper
+```
+
+`.env` file:
+```
+OPENAI_API_KEY=sk-your-key-here
+STT_PROVIDER=local
+```
+
+That's it. Run `python server.py`. First request downloads the Whisper model (~150MB), then STT is free forever.
+
+---
+
+**Option A2: OpenAI for everything — simplest, slightly more expensive**
+
+If you don't want to install faster-whisper, use OpenAI for both LLM and STT (~$0.01/interaction):
 
 ```bash
 pip install flask openai
@@ -70,8 +92,6 @@ pip install flask openai
 ```
 OPENAI_API_KEY=sk-your-key-here
 ```
-
-That's it. Run `python server.py`.
 
 ---
 
@@ -364,7 +384,8 @@ nohup python -u ~/voice-satellite/satellite.py > ~/voice-satellite/voice.log 2>&
 | Can't find phone's IP | Connect via USB, run `adb shell ip route` — IP is the number after `src` |
 | Setup script skips questions | `curl \| bash` doesn't support interactive prompts. Edit config manually: `nano ~/voice-satellite/config.env` |
 | PowerShell `$env:` not working | Use single quotes around values: `$env:OPENAI_API_KEY='sk-...'`. Set on a separate line, not inline. |
-| `latin-1 codec` encoding error | Config file has invisible special characters. Re-create it: delete and re-edit with `nano` |
+| `latin-1 codec` encoding error | Config file has invisible special characters. Delete it and re-create with a text editor (not PowerShell `echo`) |
+| `embedded null character` on server start | Same issue — `.env` file was created with PowerShell. Delete it, re-create with Notepad or VS Code |
 
 ## Roadmap
 
