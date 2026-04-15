@@ -49,9 +49,14 @@ Phone (Termux)                         Server (any machine on your network)
 
 The "server" is any computer on your network that will run the AI. 
 
-1. Download `server.py` from this repo to that machine
+1. Download `server.py` to that machine:
+   ```bash
+   curl -LO https://raw.githubusercontent.com/pioneermushrooms/termux-node-assistant/main/server.py
+   ```
+   Or just save it from the [server.py page](https://github.com/pioneermushrooms/termux-node-assistant/blob/main/server.py) (click Raw, Save As).
+
 2. Install dependencies: `pip install flask openai`
-3. Create a `.env` file **in the same folder** as `server.py` with your settings (see options below)
+3. Create a `.env` file **in the same folder** as `server.py` with your settings — use a text editor (Notepad, VS Code, nano), not command-line echo.
 4. Run: `python server.py`
 
 > **Important:** Create the `.env` file with a proper text editor (Notepad, VS Code, nano — not PowerShell `echo`). PowerShell can add invisible characters that cause crashes. Open the editor, type your settings, save as `.env`.
@@ -237,13 +242,14 @@ Now you can type everything from your computer's keyboard.
 
 #### Install the satellite
 
-From your SSH session:
+From your SSH session (or directly in Termux):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/pioneermushrooms/termux-node-assistant/main/setup.sh | bash
+curl -sL https://raw.githubusercontent.com/pioneermushrooms/termux-node-assistant/main/setup.sh -o setup.sh
+bash setup.sh
 ```
 
-> **Note:** The setup script asks 4 questions (server URL, API key, wake word, device name). If they get skipped (can happen with `curl | bash`), edit the config manually — see below.
+The setup script installs dependencies, downloads the satellite script, and walks you through configuration. If run over SSH, it will detect non-interactive mode and use defaults — you'll edit the config after.
 
 #### Configure
 
