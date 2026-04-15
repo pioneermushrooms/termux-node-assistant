@@ -163,30 +163,45 @@ It looks like `192.168.1.42` or `10.0.0.146`. Write it down.
 
 ### Step 2: Set up the phone
 
-You need an Android phone and a way to interact with it. If the screen is cracked or hard to use, install [scrcpy](https://github.com/Genymobile/scrcpy) on your computer — it mirrors your phone screen over USB so you can control it from your desktop.
+**Install two apps from F-Droid** (requires tapping the phone screen):
 
-**Install two apps from F-Droid:**
-
-1. Open [F-Droid](https://f-droid.org) on the phone (or via scrcpy)
-2. Search and install **Termux** — this is the terminal that runs on your phone
-3. Search and install **Termux:API** — this gives Termux access to the microphone and speaker
+1. Open [F-Droid](https://f-droid.org) on the phone
+2. Search and install **[Termux](https://f-droid.org/en/packages/com.termux/)** — this is the terminal that runs on your phone
+3. Search and install **[Termux:API](https://f-droid.org/en/packages/com.termux.api/)** — this gives Termux access to the microphone and speaker
 
 > **Important:** Install from F-Droid, NOT the Play Store. The Play Store version of Termux is outdated and broken.
 
-**Grant microphone permission:**
+> **Cracked or hard-to-use screen?** Use [scrcpy](https://github.com/Genymobile/scrcpy) to mirror your phone screen to your computer over USB. You only need the screen for installing apps and granting permissions — everything else can be done over SSH.
+
+**Grant microphone permission** (requires tapping the screen or scrcpy):
 
 - Go to **Settings > Apps > Termux:API > Permissions > Microphone > Allow**
 - If "Microphone" doesn't appear in the list: force-stop both **Termux** AND **Termux:API** in Settings > Apps, then reopen Termux and try again
 
-**Run the installer:**
+**Set up SSH so you can do the rest from your computer:**
 
-Open Termux (on the phone or via scrcpy) and paste this one-liner:
+On the phone (type this in Termux — it's the last thing you need to type on the phone itself):
+```bash
+pkg install openssh && sshd
+whoami
+# Note the username it prints (e.g. u0_a383)
+```
+
+Now from your computer, SSH in — no more typing on the phone:
+```bash
+ssh -p 8022 USERNAME@PHONE_IP
+# Example: ssh -p 8022 u0_a383@192.168.1.50
+```
+
+> **Finding the phone's IP:** In Termux, run `ifconfig wlan0 | grep inet` — the number after `inet` is the phone's IP.
+
+> **Setting an SSH password:** Run `passwd` in Termux to set a password for SSH login.
+
+**Run the installer** (from your SSH session):
 
 ```bash
 curl -sL https://raw.githubusercontent.com/pioneermushrooms/termux-node-assistant/main/setup.sh | bash
 ```
-
-> **Typing on a cracked screen?** Use [scrcpy](https://github.com/Genymobile/scrcpy) to mirror the phone to your computer and type there. Or SSH into the phone: install `openssh` in Termux (`pkg install openssh && sshd`), then connect from your computer with `ssh -p 8022 user@PHONE_IP`.
 
 **Answer 4 questions when prompted:**
 
