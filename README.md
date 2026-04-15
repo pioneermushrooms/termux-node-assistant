@@ -47,75 +47,69 @@ Phone (Termux)                         Server (any machine on your network)
 
 ### Step 1: Set up the server (on your computer)
 
-The "server" is any computer on your network that will run the AI. Download `server.py` from this repo to that machine, then pick one option:
+The "server" is any computer on your network that will run the AI. 
+
+1. Download `server.py` from this repo to that machine
+2. Install dependencies: `pip install flask openai`
+3. Create a `.env` file in the same folder as `server.py` with your settings (see options below)
+4. Run: `python server.py`
+
+The server reads all config from the `.env` file — no need to set environment variables in your terminal. Pick one option and create your `.env` accordingly:
 
 ---
 
-**Option A: OpenAI — easiest, 2 commands**
+**Option A: OpenAI — easiest**
 
 Requires an [OpenAI API key](https://platform.openai.com/api-keys) (~$0.01 per voice interaction).
 
-Mac/Linux:
 ```bash
 pip install flask openai
-OPENAI_API_KEY=sk-your-key-here python server.py
 ```
 
-Windows PowerShell (use single quotes — the key may have special characters):
-```powershell
-pip install flask openai
-$env:OPENAI_API_KEY='sk-your-key-here'
-$env:STT_PROVIDER='openai'
-python server.py
+`.env` file:
 ```
+OPENAI_API_KEY=sk-your-key-here
+```
+
+That's it. Run `python server.py`.
 
 ---
 
-**Option B: Ollama — free, local LLM, no API key for chat**
+**Option B: Ollama + OpenAI Whisper — free LLM, cheap STT**
 
 1. Install [Ollama](https://ollama.com) (Mac, Linux, Windows)
 2. Pull a model: `ollama pull llama3.2` (~2GB download)
-3. Start the voice server:
 
-Mac/Linux:
 ```bash
 pip install flask openai
-OPENAI_API_KEY=sk-your-key LLM_PROVIDER=ollama python server.py
 ```
 
-Windows PowerShell:
-```powershell
-pip install flask openai
-$env:OPENAI_API_KEY='sk-your-key'
-$env:LLM_PROVIDER='ollama'
-python server.py
+`.env` file:
+```
+OPENAI_API_KEY=sk-your-key-here
+LLM_PROVIDER=ollama
 ```
 
-> The LLM is free (Ollama runs locally). The OpenAI key is only used for Whisper speech-to-text (~$0.006 per 30 seconds of audio). This is the best quality-to-cost ratio.
+> The LLM is free (Ollama runs locally). The OpenAI key is only used for Whisper speech-to-text (~$0.006 per 30 seconds of audio).
 
 ---
 
-**Option C: Fully local — zero cloud, zero API keys, fully private**
+**Option C: Fully local — zero cloud, zero API keys**
 
 Uses Ollama for the LLM and faster-whisper for speech-to-text. Nothing leaves your network.
 
 1. Install [Ollama](https://ollama.com) and pull a model: `ollama pull llama3.2`
-2. Start:
 
-Mac/Linux:
 ```bash
 pip install flask openai faster-whisper
-LLM_PROVIDER=ollama python server.py
 ```
 
-Windows PowerShell:
-```powershell
-pip install flask openai faster-whisper
-$env:LLM_PROVIDER='ollama'
-python server.py
+`.env` file:
+```
+LLM_PROVIDER=ollama
 ```
 
-> No API keys needed. First request downloads the Whisper model (~150MB). Needs 8GB+ RAM on the server machine.
+> No API keys needed. First request downloads the Whisper model (~150MB). Needs 8GB+ RAM.
 
 ---
 
@@ -123,30 +117,20 @@ python server.py
 
 For maximum control. Download any GGUF model from [HuggingFace](https://huggingface.co/models?sort=trending&search=gguf) and run it directly.
 
-This can run on a separate computer OR on the phone itself (see note below).
+1. Start the model in one terminal: `llama-server -m your-model.gguf --port 8080`
+2. In another terminal:
 
-Open two terminal windows on your server machine:
-
-**Window 1 — start the model:**
-```bash
-llama-server -m gemma-4-12b-it-Q4_K_M.gguf --port 8080
-```
-
-**Window 2 — start the voice server:**
-
-Mac/Linux:
 ```bash
 pip install flask openai faster-whisper
-LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=gemma-4 python server.py
 ```
 
-Windows PowerShell:
-```powershell
-pip install flask openai faster-whisper
-$env:LLM_BASE_URL='http://localhost:8080/v1'
-$env:LLM_MODEL='gemma-4'
-python server.py
+`.env` file:
 ```
+LLM_BASE_URL=http://localhost:8080/v1
+LLM_MODEL=gemma-4
+```
+
+Run `python server.py`.
 
 > **Running on the phone itself?** A device with 6GB RAM can run small quantized models (Gemma 2B, Phi-3 mini, Qwen2-1.5B). Install llama.cpp in Termux: `pkg install cmake clang && git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp && cmake -B build && cmake --build build --config Release`. Use Termux sessions (swipe from left edge) or background processes (`llama-server ... &`) to run both. Use [scrcpy](https://github.com/Genymobile/scrcpy) to control the phone from your computer if the screen is damaged.
 
@@ -156,7 +140,12 @@ python server.py
 
 ```bash
 pip install flask openai faster-whisper
-LLM_BASE_URL=http://my-server:8080/v1 LLM_MODEL=my-model python server.py
+```
+
+`.env` file:
+```
+LLM_BASE_URL=http://my-server:8080/v1
+LLM_MODEL=my-model
 ```
 
 ---

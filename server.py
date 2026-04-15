@@ -6,14 +6,21 @@ transcribes it with Whisper (OpenAI API or local whisper.cpp),
 checks for wake word, chats with an LLM (OpenAI/Ollama/any OpenAI-compatible),
 and returns the response.
 
-Run with OpenAI:
+Setup:
     pip install flask openai
-    OPENAI_API_KEY=sk-... python server.py
+    Create a .env file next to server.py with your settings (see below)
+    python server.py
 
-Fully local (no API keys, no cloud):
+The server reads from a .env file in the same directory. Example .env:
+    OPENAI_API_KEY=sk-your-key-here
+    LLM_PROVIDER=openai
+    LLM_MODEL=gpt-4o-mini
+
+Or for fully local (no API keys):
     pip install flask openai faster-whisper
     ollama pull llama3.2
-    LLM_PROVIDER=ollama python server.py
+    # .env file:
+    LLM_PROVIDER=ollama
 
 Environment variables:
     PORT              — server port (default: 5001)
@@ -34,6 +41,18 @@ import logging
 import os
 import re
 import time
+from pathlib import Path
+
+# Load .env file if it exists (same directory as server.py)
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    for line in _env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip("'\"")
+            if key and value and key not in os.environ:
+                os.environ[key] = value
 
 from flask import Flask, jsonify, request
 
@@ -94,6 +113,9 @@ def _transcribe_openai(audio_bytes: bytes, filename: str = "audio.wav") -> str:
         return f"[STT Error: {e}]"
 
 
+_whisper_model = None
+
+
 def _transcribe_local(audio_bytes: bytes, filename: str = "audio.wav") -> str:
     """Transcribe using faster-whisper (local, no API key needed)."""
     try:
@@ -102,25 +124,30 @@ def _transcribe_local(audio_bytes: bytes, filename: str = "audio.wav") -> str:
         return "[STT Error: faster-whisper not installed. Run: pip install faster-whisper]"
 
     global _whisper_model
-    if "_whisper_model" not in globals() or _whisper_model is None:
+    if _whisper_model is None:
         logger.info(f"Loading Whisper model '{WHISPER_MODEL_SIZE}' (first request takes a moment)...")
         _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, compute_type="int8")
         logger.info("Whisper model loaded.")
 
+    tmp = None
     try:
         import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(audio_bytes)
-            tmp = f.name
+        # Write to temp file, close it before passing to whisper (Windows compatibility)
+        fd, tmp = tempfile.mkstemp(suffix=".wav")
+        os.write(fd, audio_bytes)
+        os.close(fd)
         segments, _ = _whisper_model.transcribe(tmp, beam_size=5)
         text = " ".join(s.text.strip() for s in segments)
-        os.unlink(tmp)
         return text if text else "[silence]"
     except Exception as e:
+        logger.error(f"Local STT error: {e}", exc_info=True)
         return f"[STT Error: {e}]"
-
-
-_whisper_model = None
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def _transcribe(audio_bytes: bytes, filename: str = "audio.wav") -> str:
