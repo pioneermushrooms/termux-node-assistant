@@ -193,7 +193,7 @@ ssh -p 8022 USERNAME@PHONE_IP
 # Example: ssh -p 8022 u0_a383@192.168.1.50
 ```
 
-> **Finding the phone's IP:** In Termux, run `ifconfig wlan0 | grep inet` — the number after `inet` is the phone's IP.
+> **Finding the phone's IP:** In Termux, run `ip addr show wlan0 | grep inet` — the number after `inet` is the phone's IP (e.g. `192.168.1.50`).
 
 > **Setting an SSH password:** Run `passwd` in Termux to set a password for SSH login.
 
