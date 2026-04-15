@@ -126,7 +126,7 @@ def _transcribe_local(audio_bytes: bytes, filename: str = "audio.wav") -> str:
     global _whisper_model
     if _whisper_model is None:
         logger.info(f"Loading Whisper model '{WHISPER_MODEL_SIZE}' (first request takes a moment)...")
-        _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, compute_type="int8")
+        _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
         logger.info("Whisper model loaded.")
 
     tmp = None
