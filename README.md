@@ -35,24 +35,37 @@ pip install flask openai
 OPENAI_API_KEY=sk-your-key-here python server.py
 ```
 
-**Option B: Ollama (free, fully local, no API key for LLM)**
+**Option B: Fully local (free, no API keys, no cloud)**
 
 1. Install Ollama from [ollama.com](https://ollama.com) (Mac, Linux, or Windows)
 2. Pull a model: `ollama pull llama3.2` (takes a few minutes, ~2GB download)
 3. Download `server.py` from this repo
 4. Run:
 ```bash
-pip install flask openai
+pip install flask openai faster-whisper
 LLM_PROVIDER=ollama python server.py
 ```
 
-> Note: Ollama handles the LLM for free, but speech-to-text still uses OpenAI's Whisper API by default. Set `OPENAI_API_KEY` for that (~$0.006 per 30 seconds of audio). Local Whisper support is on the roadmap.
+> This runs everything locally — Whisper for speech-to-text and Ollama for the LLM. No API keys, no cloud, no cost. The first voice request downloads the Whisper model (~150MB). Needs a decent computer (8GB+ RAM).
 
-**Option C: Any OpenAI-compatible API (LM Studio, vLLM, text-generation-webui)**
+**Option C: Ollama + OpenAI Whisper (best of both)**
+
+1. Install Ollama, pull a model
+2. Run with an OpenAI key for higher-quality STT:
 ```bash
 pip install flask openai
+OPENAI_API_KEY=sk-your-key LLM_PROVIDER=ollama python server.py
+```
+
+> Free LLM via Ollama, cloud STT via OpenAI Whisper (~$0.006 per 30s of audio). Best quality-to-cost ratio.
+
+**Option D: Any OpenAI-compatible API (LM Studio, vLLM, llama.cpp server)**
+```bash
+pip install flask openai faster-whisper
 LLM_BASE_URL=http://my-server:8080/v1 LLM_MODEL=my-model python server.py
 ```
+
+> Works with llama.cpp (`llama-server`), LM Studio, vLLM, text-generation-webui — anything that serves an OpenAI-compatible `/v1/chat/completions` endpoint.
 
 **Once the server starts, you'll see:**
 ```
@@ -166,7 +179,9 @@ Server environment variables (set when running `python server.py`):
 | `LLM_PROVIDER` | `openai` | `openai` or `ollama` |
 | `LLM_MODEL` | `gpt-4o-mini` | Which model to chat with |
 | `LLM_BASE_URL` | (auto-detected) | Custom API endpoint URL |
-| `OPENAI_API_KEY` | — | Required for OpenAI LLM + Whisper STT |
+| `OPENAI_API_KEY` | — | Required for OpenAI LLM; enables cloud Whisper STT |
+| `STT_PROVIDER` | `auto` | `auto` (cloud if API key set, local otherwise), `openai`, or `local` |
+| `WHISPER_MODEL_SIZE` | `base` | Local Whisper model: `tiny` / `base` / `small` / `medium` / `large` |
 | `API_KEY` | (empty) | Must match the phone's config |
 | `SYSTEM_PROMPT` | (built-in) | Custom personality for the assistant |
 | `PORT` | `5001` | Server port |
@@ -218,8 +233,7 @@ nohup python -u ~/voice-satellite/satellite.py > ~/voice-satellite/voice.log 2>&
 
 ## Roadmap
 
-- [ ] Local Whisper STT via whisper.cpp (no cloud needed for transcription)
-- [ ] Self-contained mode (everything on the phone — whisper.cpp + llama.cpp)
+- [x] Local Whisper STT via faster-whisper (no cloud needed for transcription)
 - [ ] Silero VAD (ML-based silence detection, much more accurate than energy threshold)
 - [ ] openWakeWord (ML-based wake word detection, uses less CPU)
 - [ ] Piper TTS (local TTS, alternative to Android's built-in engine)

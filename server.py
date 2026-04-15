@@ -6,23 +6,24 @@ transcribes it with Whisper (OpenAI API or local whisper.cpp),
 checks for wake word, chats with an LLM (OpenAI/Ollama/any OpenAI-compatible),
 and returns the response.
 
-Run:
+Run with OpenAI:
     pip install flask openai
-    python server.py
+    OPENAI_API_KEY=sk-... python server.py
 
-Or with Ollama (local, free):
-    # Install Ollama: https://ollama.com
+Fully local (no API keys, no cloud):
+    pip install flask openai faster-whisper
     ollama pull llama3.2
-    LLM_PROVIDER=ollama LLM_MODEL=llama3.2 python server.py
+    LLM_PROVIDER=ollama python server.py
 
 Environment variables:
     PORT              — server port (default: 5001)
     LLM_PROVIDER      — "openai" or "ollama" (default: openai)
     LLM_MODEL         — model name (default: gpt-4o-mini / llama3.2)
     LLM_BASE_URL      — custom base URL for OpenAI-compatible APIs
-    OPENAI_API_KEY     — required for OpenAI provider + Whisper STT
-    STT_PROVIDER       — "openai" or "local" (default: openai)
-    WHISPER_MODEL      — local whisper model path (for STT_PROVIDER=local)
+    OPENAI_API_KEY     — required for OpenAI provider; optional for STT
+    STT_PROVIDER       — "auto", "openai", or "local" (default: auto)
+                         auto = openai if API key set, local otherwise
+    WHISPER_MODEL_SIZE — local whisper model: tiny/base/small/medium/large (default: base)
     API_KEY            — shared secret for satellite auth (optional)
     SYSTEM_PROMPT      — custom system prompt (optional)
 """
@@ -47,8 +48,16 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini" if LLM_PROVIDER == "openai" else "llama3.2")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1" if LLM_PROVIDER == "ollama" else None)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-STT_PROVIDER = os.getenv("STT_PROVIDER", "openai")
+STT_PROVIDER = os.getenv("STT_PROVIDER", "auto")  # "auto", "openai", "local"
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")  # tiny, base, small, medium, large
 API_KEY = os.getenv("API_KEY", "")
+
+# Auto-detect STT provider
+if STT_PROVIDER == "auto":
+    if OPENAI_API_KEY:
+        STT_PROVIDER = "openai"
+    else:
+        STT_PROVIDER = "local"
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are a voice assistant. The user spoke aloud and will hear your response "
@@ -85,11 +94,41 @@ def _transcribe_openai(audio_bytes: bytes, filename: str = "audio.wav") -> str:
         return f"[STT Error: {e}]"
 
 
+def _transcribe_local(audio_bytes: bytes, filename: str = "audio.wav") -> str:
+    """Transcribe using faster-whisper (local, no API key needed)."""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        return "[STT Error: faster-whisper not installed. Run: pip install faster-whisper]"
+
+    global _whisper_model
+    if "_whisper_model" not in globals() or _whisper_model is None:
+        logger.info(f"Loading Whisper model '{WHISPER_MODEL_SIZE}' (first request takes a moment)...")
+        _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, compute_type="int8")
+        logger.info("Whisper model loaded.")
+
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(audio_bytes)
+            tmp = f.name
+        segments, _ = _whisper_model.transcribe(tmp, beam_size=5)
+        text = " ".join(s.text.strip() for s in segments)
+        os.unlink(tmp)
+        return text if text else "[silence]"
+    except Exception as e:
+        return f"[STT Error: {e}]"
+
+
+_whisper_model = None
+
+
 def _transcribe(audio_bytes: bytes, filename: str = "audio.wav") -> str:
     """Transcribe audio to text."""
     if STT_PROVIDER == "openai":
         return _transcribe_openai(audio_bytes, filename)
-    # Future: local whisper.cpp support
+    if STT_PROVIDER == "local":
+        return _transcribe_local(audio_bytes, filename)
     return "[STT Error: unknown provider]"
 
 
@@ -247,8 +286,11 @@ if __name__ == "__main__":
     print(" Voice Satellite Server")
     print("=" * 50)
     print(f"  LLM:     {LLM_PROVIDER} ({LLM_MODEL})")
-    print(f"  STT:     {STT_PROVIDER}")
+    stt_detail = f"{STT_PROVIDER}" + (f" ({WHISPER_MODEL_SIZE})" if STT_PROVIDER == "local" else "")
+    print(f"  STT:     {stt_detail}")
     print(f"  Auth:    {'enabled' if API_KEY else 'disabled'}")
     print(f"  Listen:  http://0.0.0.0:{port}/voice")
+    if STT_PROVIDER == "local":
+        print(f"  Note:    First request will download the Whisper model (~150MB for 'base')")
     print("=" * 50)
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
