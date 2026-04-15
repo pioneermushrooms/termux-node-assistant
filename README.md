@@ -69,26 +69,43 @@ Everything runs on your machine. No API keys, no accounts, no data leaves your n
 
 ---
 
-**Option B: llama.cpp — run any GGUF model (Gemma 4, Llama, Mistral, etc.)**
+**Option B: llama.cpp — run any GGUF model locally (even on the phone itself)**
 
-For maximum control over which model you run. Download any GGUF from [HuggingFace](https://huggingface.co/models?sort=trending&search=gguf).
+Run any quantized model from [HuggingFace](https://huggingface.co/models?sort=trending&search=gguf). This can run on a separate computer OR directly on the phone — a device with 6GB RAM can run small models like Gemma 2B, Phi-3 mini, or Qwen2-1.5B.
 
-1. **Install llama.cpp** — [build instructions](https://github.com/ggml-org/llama.cpp#build) or download a release
-2. **Download a GGUF model** (example: Gemma 4):
+> **Tip:** If your phone has a damaged screen, use [scrcpy](https://github.com/Genymobile/scrcpy) on your computer to mirror the phone's display and type commands from your keyboard. This is highly recommended for the setup steps below.
+
+1. **Install llama.cpp** — on your computer ([build instructions](https://github.com/ggml-org/llama.cpp#build) or [prebuilt releases](https://github.com/ggml-org/llama.cpp/releases)), or in Termux on the phone:
    ```bash
-   # From HuggingFace, download the GGUF file for your model
+   pkg install cmake clang
+   git clone https://github.com/ggml-org/llama.cpp
+   cd llama.cpp && cmake -B build && cmake --build build --config Release
    ```
-3. **Start the model server:**
+2. **Download a GGUF model** — pick a size that fits your RAM:
+   - **4GB RAM:** Qwen2-1.5B-Q4, Phi-3-mini-Q4
+   - **6GB RAM:** Gemma-2-2B-Q4, Llama-3.2-3B-Q4
+   - **8GB+ RAM:** Gemma-4-12B-Q4, Llama-3.1-8B-Q4
+3. **Start the model server.** In Termux, you need two sessions — swipe from the left edge of the screen to open the session drawer, tap "New session":
+
+   **Session 1 — start the model:**
    ```bash
-   llama-server -m gemma-4-12b-it-Q4_K_M.gguf --port 8080
+   ./llama.cpp/build/bin/llama-server -m your-model.gguf --port 8080
    ```
-4. **In a second terminal, start the voice server:**
+
+   **Session 2 — start the voice server:**
    ```bash
    pip install flask openai faster-whisper
-   LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=gemma-4 python server.py
+   LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=local python server.py
    ```
 
-> **Zero cloud, zero cost, fully private.** Run Gemma 4, Llama 3, Mistral, Phi, Qwen — any model that has a GGUF release.
+   > **Or run both in one session** using background processes:
+   > ```bash
+   > ./llama.cpp/build/bin/llama-server -m your-model.gguf --port 8080 &
+   > sleep 5
+   > LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=local python server.py
+   > ```
+
+> **Zero cloud, zero cost, fully private.** No data ever leaves the device. Works in airplane mode after setup. Run Gemma, Llama, Mistral, Phi, Qwen — any model with a GGUF release.
 
 ---
 
