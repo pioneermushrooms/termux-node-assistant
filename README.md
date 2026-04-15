@@ -1,6 +1,6 @@
 # termux-node-assistant
 
-Turn any old Android phone into an always-on voice assistant. No app development, no root, no Play Store — just Termux.
+Turn any old Android phone into an always-on voice assistant. No app development, no root — just Termux.
 
 ```
 "Hey Jarvis, what's the weather?"
@@ -21,10 +21,10 @@ No existing project does this. The voice assistant ecosystem is fragmented betwe
 
 ## How It Works
 
-The phone is just a mic and speaker. All the AI runs on a separate machine (your desktop, a server, a Raspberry Pi — anything on your network).
+The phone is just a mic and speaker. The AI runs on a separate machine — your desktop, a server, a Raspberry Pi, or even a cloud VM.
 
 ```
-Phone (Termux)                         Server (any machine)
+Phone (Termux)                         Server (any machine on your network)
 ┌──────────────────────┐               ┌────────────────────────┐
 │  Mic picks up speech │               │  server.py             │
 │  ↓                   │   audio file  │  ↓                     │
@@ -39,106 +39,120 @@ Phone (Termux)                         Server (any machine)
 └──────────────────────┘               └────────────────────────┘
 ```
 
+**What runs on the phone:** `satellite.py` — listens to mic, sends audio, speaks response. Two Python packages: `pyaudio` and `requests`.
+
+**What runs on your server:** `server.py` — receives audio, transcribes with Whisper, chats with your LLM, returns text. You choose the LLM.
+
 ## Quick Start
 
-### Step 1: Choose your LLM backend and start the server
+### Step 1: Set up the server (on your computer)
 
-The "server" is any machine on your network — a desktop, laptop, NAS, Raspberry Pi, or even a cloud VM. It runs the AI. Pick one option:
-
----
-
-**Option A: Fully local — zero cloud, zero cost, fully private**
-
-Everything runs on your machine. No API keys, no accounts, no data leaves your network.
-
-1. **Install Ollama** from [ollama.com](https://ollama.com) — available for Mac, Linux, and Windows. This runs the LLM.
-2. **Pull a model** (one-time download):
-   ```bash
-   ollama pull llama3.2          # 2GB, good for most questions
-   # or for better quality:
-   ollama pull llama3.1:8b       # 4.7GB
-   ```
-3. **Download `server.py`** from this repo to your machine
-4. **Install Python deps and start:**
-   ```bash
-   pip install flask openai faster-whisper
-   LLM_PROVIDER=ollama python server.py
-   ```
-
-> **What's happening:** Ollama handles the LLM chat. `faster-whisper` handles speech-to-text locally. No API keys needed. First voice request downloads the Whisper model (~150MB). Needs 8GB+ RAM.
+The "server" is any computer on your network that will run the AI. Download `server.py` from this repo to that machine, then pick one option:
 
 ---
 
-**Option B: llama.cpp — run any GGUF model locally (even on the phone itself)**
+**Option A: OpenAI — easiest, 2 commands**
 
-Run any quantized model from [HuggingFace](https://huggingface.co/models?sort=trending&search=gguf). This can run on a separate computer OR directly on the phone — a device with 6GB RAM can run small models like Gemma 2B, Phi-3 mini, or Qwen2-1.5B.
+Requires an [OpenAI API key](https://platform.openai.com/api-keys) (~$0.01 per voice interaction).
 
-> **Tip:** If your phone has a damaged screen, use [scrcpy](https://github.com/Genymobile/scrcpy) on your computer to mirror the phone's display and type commands from your keyboard. This is highly recommended for the setup steps below.
+Mac/Linux:
+```bash
+pip install flask openai
+OPENAI_API_KEY=sk-your-key-here python server.py
+```
 
-1. **Install llama.cpp** — on your computer ([build instructions](https://github.com/ggml-org/llama.cpp#build) or [prebuilt releases](https://github.com/ggml-org/llama.cpp/releases)), or in Termux on the phone:
-   ```bash
-   pkg install cmake clang
-   git clone https://github.com/ggml-org/llama.cpp
-   cd llama.cpp && cmake -B build && cmake --build build --config Release
-   ```
-2. **Download a GGUF model** — pick a size that fits your RAM:
-   - **4GB RAM:** Qwen2-1.5B-Q4, Phi-3-mini-Q4
-   - **6GB RAM:** Gemma-2-2B-Q4, Llama-3.2-3B-Q4
-   - **8GB+ RAM:** Gemma-4-12B-Q4, Llama-3.1-8B-Q4
-3. **Start the model server.** In Termux, you need two sessions — swipe from the left edge of the screen to open the session drawer, tap "New session":
-
-   **Session 1 — start the model:**
-   ```bash
-   ./llama.cpp/build/bin/llama-server -m your-model.gguf --port 8080
-   ```
-
-   **Session 2 — start the voice server:**
-   ```bash
-   pip install flask openai faster-whisper
-   LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=local python server.py
-   ```
-
-   > **Or run both in one session** using background processes:
-   > ```bash
-   > ./llama.cpp/build/bin/llama-server -m your-model.gguf --port 8080 &
-   > sleep 5
-   > LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=local python server.py
-   > ```
-
-> **Zero cloud, zero cost, fully private.** No data ever leaves the device. Works in airplane mode after setup. Run Gemma, Llama, Mistral, Phi, Qwen — any model with a GGUF release.
+Windows PowerShell (use single quotes — the key may have special characters):
+```powershell
+pip install flask openai
+$env:OPENAI_API_KEY='sk-your-key-here'
+$env:STT_PROVIDER='openai'
+python server.py
+```
 
 ---
 
-**Option C: OpenAI — easiest setup, cloud-based, ~$0.01/interaction**
+**Option B: Ollama — free, local LLM, no API key for chat**
 
-1. **Get an API key:** go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys), sign in, click "Create new secret key", copy it. Requires a credit card on file.
-2. **Download `server.py`** from this repo
-3. **Start:**
-   ```bash
-   pip install flask openai
-   OPENAI_API_KEY=sk-your-key-here python server.py
-   ```
+1. Install [Ollama](https://ollama.com) (Mac, Linux, Windows)
+2. Pull a model: `ollama pull llama3.2` (~2GB download)
+3. Start the voice server:
 
-> Uses GPT-4o-mini for chat and OpenAI Whisper for speech-to-text. Fast and high quality but costs ~$0.01 per voice interaction.
-
----
-
-**Option D: Mix and match — free LLM + cloud STT**
-
-Use Ollama for the LLM (free) and OpenAI just for speech-to-text (cheap, higher quality than local Whisper):
-
+Mac/Linux:
 ```bash
 pip install flask openai
 OPENAI_API_KEY=sk-your-key LLM_PROVIDER=ollama python server.py
 ```
 
-> Best quality-to-cost ratio. LLM is free, STT costs ~$0.006 per 30 seconds of audio.
+Windows PowerShell:
+```powershell
+pip install flask openai
+$env:OPENAI_API_KEY='sk-your-key'
+$env:LLM_PROVIDER='ollama'
+python server.py
+```
+
+> The LLM is free (Ollama runs locally). The OpenAI key is only used for Whisper speech-to-text (~$0.006 per 30 seconds of audio). This is the best quality-to-cost ratio.
 
 ---
 
-**Option E: Any OpenAI-compatible API**
+**Option C: Fully local — zero cloud, zero API keys, fully private**
 
-Works with LM Studio, vLLM, text-generation-webui — anything that serves `/v1/chat/completions`:
+Uses Ollama for the LLM and faster-whisper for speech-to-text. Nothing leaves your network.
+
+1. Install [Ollama](https://ollama.com) and pull a model: `ollama pull llama3.2`
+2. Start:
+
+Mac/Linux:
+```bash
+pip install flask openai faster-whisper
+LLM_PROVIDER=ollama python server.py
+```
+
+Windows PowerShell:
+```powershell
+pip install flask openai faster-whisper
+$env:LLM_PROVIDER='ollama'
+python server.py
+```
+
+> No API keys needed. First request downloads the Whisper model (~150MB). Needs 8GB+ RAM on the server machine.
+
+---
+
+**Option D: llama.cpp — run any GGUF model (Gemma 4, Llama, Mistral, etc.)**
+
+For maximum control. Download any GGUF model from [HuggingFace](https://huggingface.co/models?sort=trending&search=gguf) and run it directly.
+
+This can run on a separate computer OR on the phone itself (see note below).
+
+Open two terminal windows on your server machine:
+
+**Window 1 — start the model:**
+```bash
+llama-server -m gemma-4-12b-it-Q4_K_M.gguf --port 8080
+```
+
+**Window 2 — start the voice server:**
+
+Mac/Linux:
+```bash
+pip install flask openai faster-whisper
+LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=gemma-4 python server.py
+```
+
+Windows PowerShell:
+```powershell
+pip install flask openai faster-whisper
+$env:LLM_BASE_URL='http://localhost:8080/v1'
+$env:LLM_MODEL='gemma-4'
+python server.py
+```
+
+> **Running on the phone itself?** A device with 6GB RAM can run small quantized models (Gemma 2B, Phi-3 mini, Qwen2-1.5B). Install llama.cpp in Termux: `pkg install cmake clang && git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp && cmake -B build && cmake --build build --config Release`. Use Termux sessions (swipe from left edge) or background processes (`llama-server ... &`) to run both. Use [scrcpy](https://github.com/Genymobile/scrcpy) to control the phone from your computer if the screen is damaged.
+
+---
+
+**Option E: Any OpenAI-compatible API (LM Studio, vLLM, etc.)**
 
 ```bash
 pip install flask openai faster-whisper
@@ -149,91 +163,124 @@ LLM_BASE_URL=http://my-server:8080/v1 LLM_MODEL=my-model python server.py
 
 **Once the server starts, you'll see:**
 ```
+==================================================
+ Voice Satellite Server
+==================================================
   LLM:     ollama (llama3.2)
-  STT:     local (base)
+  STT:     openai
+  Auth:    disabled
   Listen:  http://0.0.0.0:5001/voice
+==================================================
 ```
 
-**Now find your server machine's IP** (you'll need this for the phone):
-- **Windows:** open PowerShell, run `ipconfig | findstr IPv4`
+**Find your server's IP address** (the phone needs this to connect):
+- **Windows PowerShell:** `ipconfig | findstr IPv4`
 - **Mac:** `ifconfig | grep "inet " | grep -v 127`
 - **Linux:** `hostname -I`
 
-It looks like `192.168.1.42` or `10.0.0.146`. Write it down.
+It looks like `192.168.1.42` or `10.0.0.89`. Write it down — you'll enter it on the phone.
 
 ### Step 2: Set up the phone
 
-**Install two apps from F-Droid** (requires tapping the phone screen):
+#### Install apps (requires the phone screen)
 
-1. Open [F-Droid](https://f-droid.org) on the phone
-2. Search and install **[Termux](https://f-droid.org/en/packages/com.termux/)** — this is the terminal that runs on your phone
-3. Search and install **[Termux:API](https://f-droid.org/en/packages/com.termux.api/)** — this gives Termux access to the microphone and speaker
+1. Install **[Termux](https://f-droid.org/en/packages/com.termux/)** — from F-Droid or the Play Store
+2. Install **[Termux:API](https://f-droid.org/en/packages/com.termux.api/)** — from F-Droid or the Play Store. This is a **separate app** that gives Termux access to the mic and speaker.
 
-> **Important:** Install from F-Droid, NOT the Play Store. The Play Store version of Termux is outdated and broken.
+> **Damaged screen?** Use [scrcpy](https://github.com/Genymobile/scrcpy) on your computer to mirror the phone screen over USB. You only need the screen for installing apps and granting permissions.
 
-> **Cracked or hard-to-use screen?** Use [scrcpy](https://github.com/Genymobile/scrcpy) to mirror your phone screen to your computer over USB. You only need the screen for installing apps and granting permissions — everything else can be done over SSH.
+#### Grant microphone permission
 
-**Grant microphone permission** (requires tapping the screen or scrcpy):
+- Go to **Settings > Apps > Termux > Permissions > Microphone > Allow**
+- Also: **Settings > Apps > Termux:API > Permissions > Microphone > Allow**
+- If "Microphone" doesn't appear: force-stop both **Termux** AND **Termux:API** in Settings > Apps, then reopen Termux. A permission popup should appear when you first use the mic.
 
-- Go to **Settings > Apps > Termux:API > Permissions > Microphone > Allow**
-- If "Microphone" doesn't appear in the list: force-stop both **Termux** AND **Termux:API** in Settings > Apps, then reopen Termux and try again
+#### Set up SSH (so you can do the rest from your computer's keyboard)
 
-**Set up SSH so you can do the rest from your computer:**
+Open Termux on the phone and type these commands — this is the last thing you need to type on the phone itself:
 
-On the phone (type this in Termux — it's the last thing you need to type on the phone itself):
 ```bash
-pkg install openssh && sshd
+pkg install openssh
+passwd
+# Type a password (you'll use this to SSH in)
+sshd
 whoami
-# Note the username it prints (e.g. u0_a383)
+# Note the username (e.g. u0_a383)
 ```
 
-Now from your computer, SSH in — no more typing on the phone:
+**Find the phone's IP** — on your computer (with phone connected via USB):
+```
+# Windows (from your scrcpy folder or wherever adb is):
+adb shell ip route
+# Look for the number after "src" — that's the phone's IP (e.g. 10.0.0.231)
+
+# Or on Mac/Linux:
+adb shell ip route | awk '{print $NF}'
+```
+
+**SSH in from your computer:**
 ```bash
 ssh -p 8022 USERNAME@PHONE_IP
-# Example: ssh -p 8022 u0_a383@192.168.1.50
+# Example: ssh -p 8022 u0_a383@10.0.0.231
 ```
 
-> **Finding the phone's IP:** In Termux, run `ip addr show wlan0 | grep inet` — the number after `inet` is the phone's IP (e.g. `192.168.1.50`).
+Now you can type everything from your computer's keyboard.
 
-> **Setting an SSH password:** Run `passwd` in Termux to set a password for SSH login.
+#### Install the satellite
 
-**Run the installer** (from your SSH session):
+From your SSH session:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/pioneermushrooms/termux-node-assistant/main/setup.sh | bash
 ```
 
-**Answer 4 questions when prompted:**
+> **Note:** The setup script asks 4 questions (server URL, API key, wake word, device name). If they get skipped (can happen with `curl | bash`), edit the config manually — see below.
 
-| Question | What to enter | Example |
-|----------|--------------|---------|
-| **Server URL** | `http://` + your server machine's IP + `:5001` | `http://192.168.1.42:5001` |
-| **API key** | A shared password (make one up), or press Enter for none | `mykey123` or just Enter |
-| **Wake word** | The phrase you'll say to activate | `jarvis` |
-| **Device name** | A name for this phone | `kitchen-phone` |
+#### Configure
 
-> If you set an API key, start the server with the same key: `API_KEY=mykey123 python server.py`
+Edit the config file:
+
+```bash
+nano ~/voice-satellite/config.env
+```
+
+Make sure it looks like this (with your server's actual IP):
+
+```
+SERVER_URL=http://YOUR_SERVER_IP:5001
+API_KEY=
+WAKE_WORD=jarvis
+NODE_ID=my-phone
+SILENCE_THRESHOLD=400
+SILENCE_DURATION=2.0
+MAX_RECORD_SECONDS=30
+SESSION_TIMEOUT=30
+```
+
+| Field | What to enter |
+|-------|--------------|
+| `SERVER_URL` | `http://` + your server's IP + `:5001` (e.g. `http://10.0.0.89:5001`) |
+| `API_KEY` | Leave blank unless you started the server with `API_KEY=something` |
+| `WAKE_WORD` | Whatever phrase you want to say to activate (e.g. `jarvis`, `computer`, `hey assistant`) |
+
+Save with **Ctrl+O**, Enter, **Ctrl+X**.
 
 ### Step 3: Start it
 
+Test the connection first:
+```bash
+curl http://YOUR_SERVER_IP:5001/health
+```
+
+Should return `{"status": "ok", ...}`. If not, see Troubleshooting below.
+
+Then start:
 ```bash
 termux-wake-lock
 python ~/voice-satellite/satellite.py
 ```
 
 Say your wake word, then speak!
-
-### Step 4: Verify
-
-Test the connection from the phone:
-```bash
-curl http://YOUR_SERVER_IP:5001/health
-```
-
-Should return `{"status": "ok", ...}`. If not:
-- Is the server still running?
-- Are both devices on the same WiFi network?
-- **Windows firewall blocking?** Run as admin: `netsh advfirewall firewall add rule name="Voice Server" dir=in action=allow protocol=TCP localport=5001`
 
 ## Features
 
@@ -247,51 +294,24 @@ Should return `{"status": "ok", ...}`. If not:
 - **Bearer token auth** — optional shared secret between phone and server
 - **Fully local capable** — Ollama or llama.cpp for LLM + faster-whisper for STT = zero cloud
 
-## Configuration
+## Keeping It Always-On
 
-Edit `~/voice-satellite/config.env` on the phone to tune settings:
+By default, the mic only works while Termux is the active app on screen. To keep it running 24/7:
 
-| Variable | Default | What it does |
-|----------|---------|-------------|
-| `SERVER_URL` | `http://localhost:5001` | Your server's address |
-| `API_KEY` | (empty) | Auth token (must match server's `API_KEY`) |
-| `WAKE_WORD` | `jarvis` | What you say to activate |
-| `NODE_ID` | `android-satellite` | Name for this device |
-| `SILENCE_THRESHOLD` | `400` | Mic sensitivity — lower = picks up quieter speech (try 200-700) |
-| `SILENCE_DURATION` | `2.0` | Seconds of silence before it stops recording |
-| `MAX_RECORD_SECONDS` | `30` | Max recording length per utterance |
-| `SESSION_TIMEOUT` | `30` | Seconds of silence before ending a conversation |
+**1. Prevent Android from killing Termux:**
+- Settings > Apps > Termux > Battery > **Unrestricted**
+- Settings > Apps > Termux:API > Battery > **Unrestricted**
+- Keep the phone plugged in
 
-Server environment variables (set when running `python server.py`):
-
-| Variable | Default | What it does |
-|----------|---------|-------------|
-| `LLM_PROVIDER` | `openai` | `openai` or `ollama` |
-| `LLM_MODEL` | `gpt-4o-mini` | Which model to chat with |
-| `LLM_BASE_URL` | (auto-detected) | Custom API endpoint URL |
-| `OPENAI_API_KEY` | — | Required for OpenAI LLM; enables cloud Whisper STT |
-| `STT_PROVIDER` | `auto` | `auto` (cloud if API key set, local otherwise), `openai`, or `local` |
-| `WHISPER_MODEL_SIZE` | `base` | Local Whisper model: `tiny` (39MB) / `base` (141MB) / `small` (466MB) / `medium` (1.5GB) / `large` (3GB) |
-| `API_KEY` | (empty) | Must match the phone's config |
-| `SYSTEM_PROMPT` | (built-in) | Custom personality for the assistant |
-| `PORT` | `5001` | Server port |
-
-## Always-On Setup
-
-Want to leave the phone running 24/7 as a smart speaker?
-
-**Prevent Android from killing Termux:**
-1. Settings > Apps > Termux > Battery > Unrestricted
-2. Settings > Apps > Termux:API > Battery > Unrestricted
-3. Keep the phone plugged in
-
-**Run in background (survives SSH disconnects):**
+**2. Run in background** (survives SSH disconnects and screen-off):
 ```bash
 termux-wake-lock
 nohup python -u ~/voice-satellite/satellite.py > ~/voice-satellite/voice.log 2>&1 &
 ```
 
-**Auto-start when phone boots** (install [Termux:Boot](https://f-droid.org/en/packages/com.termux.boot/) from F-Droid):
+> `termux-wake-lock` is critical — without it, Android will suspend Termux when the screen turns off and the mic will stop working.
+
+**3. Auto-start when phone boots** (install [Termux:Boot](https://f-droid.org/en/packages/com.termux.boot/) from F-Droid):
 ```bash
 mkdir -p ~/.termux/boot
 echo 'termux-wake-lock && nohup python -u ~/voice-satellite/satellite.py > ~/voice-satellite/voice.log 2>&1 &' > ~/.termux/boot/voice.sh
@@ -309,18 +329,53 @@ pkill -f satellite.py
 nohup python -u ~/voice-satellite/satellite.py > ~/voice-satellite/voice.log 2>&1 &
 ```
 
+## Configuration Reference
+
+**Phone** (`~/voice-satellite/config.env`):
+
+| Variable | Default | What it does |
+|----------|---------|-------------|
+| `SERVER_URL` | `http://localhost:5001` | Your server's address |
+| `API_KEY` | (empty) | Auth token — must match the server's `API_KEY` if set |
+| `WAKE_WORD` | `jarvis` | What you say to activate |
+| `NODE_ID` | `android-satellite` | Name for this device |
+| `SILENCE_THRESHOLD` | `400` | Mic sensitivity — lower = picks up quieter speech (try 200-700) |
+| `SILENCE_DURATION` | `2.0` | Seconds of silence before it stops recording |
+| `MAX_RECORD_SECONDS` | `30` | Max recording length per utterance |
+| `SESSION_TIMEOUT` | `30` | Seconds of silence before ending a conversation |
+
+**Server** (environment variables, set before running `python server.py`):
+
+| Variable | Default | What it does |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `openai` | `openai` or `ollama` |
+| `LLM_MODEL` | `gpt-4o-mini` | Which model to use |
+| `LLM_BASE_URL` | (auto) | Custom endpoint URL (for llama.cpp, LM Studio, etc.) |
+| `OPENAI_API_KEY` | — | Required for OpenAI LLM and/or cloud Whisper STT |
+| `STT_PROVIDER` | `auto` | `auto` (cloud if API key set, local otherwise), `openai`, or `local` |
+| `WHISPER_MODEL_SIZE` | `base` | Local Whisper model: `tiny` (39MB) / `base` (141MB) / `small` (466MB) / `medium` (1.5GB) / `large` (3GB) |
+| `API_KEY` | (empty) | Shared secret — must match the phone's `API_KEY` if set. This is NOT your OpenAI key. |
+| `SYSTEM_PROMPT` | (built-in) | Custom personality for the assistant |
+| `PORT` | `5001` | Server port |
+
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| "Can't reach the server" | Check `SERVER_URL` in config.env. Test with `curl http://SERVER_IP:5001/health`. Both devices must be on the same WiFi. |
-| No speech detected | Lower `SILENCE_THRESHOLD` (try 200 or 300) |
+| "Can't reach the server" | Check `SERVER_URL` in config.env. Test: `curl http://SERVER_IP:5001/health`. Both devices must be on the same WiFi. |
+| 401 Unauthorized on server | Your OpenAI API key isn't set or is expired. Re-set it: `$env:OPENAI_API_KEY='sk-...'` (Windows) or `export OPENAI_API_KEY=sk-...` (Mac/Linux) |
+| 500 Server Error | Check the server terminal for error messages. Common cause: missing OpenAI key or faster-whisper not installed. |
+| No speech detected | Lower `SILENCE_THRESHOLD` in config.env (try 200 or 300) |
 | Cuts off mid-sentence | Increase `SILENCE_DURATION` (try 2.5 or 3.0) |
-| PyAudio error -9999 | Mic permission not granted. Install Termux:API **app** from F-Droid, force-stop both apps, reopen Termux, run `termux-microphone-record -f test.wav -l 3` to trigger permission dialog |
-| `termux-microphone-record` no output | Termux:API app not installed (it's separate from the `termux-api` package). Install from F-Droid. |
+| Mic only works with Termux open | Run `termux-wake-lock` before starting. Set battery to Unrestricted for both Termux apps. |
+| PyAudio error -9999 | Mic permission not granted to **Termux** (not just Termux:API). Settings > Apps > Termux > Permissions > Microphone > Allow. Force-stop both apps and reopen if needed. |
+| `termux-microphone-record` no output | Termux:API **app** not installed (it's separate from the `termux-api` package). Install from F-Droid or Play Store. |
 | 15-second recordings of nothing | Speaker audio bleeding into mic. Lower phone volume. |
 | Windows firewall blocking | Admin PowerShell: `netsh advfirewall firewall add rule name="Voice Server" dir=in action=allow protocol=TCP localport=5001` |
-| Hard to type on cracked screen | Use [scrcpy](https://github.com/Genymobile/scrcpy) to mirror phone to your computer, or SSH in: `pkg install openssh && sshd` then `ssh -p 8022 user@PHONE_IP` |
+| Can't find phone's IP | Connect via USB, run `adb shell ip route` — IP is the number after `src` |
+| Setup script skips questions | `curl \| bash` doesn't support interactive prompts. Edit config manually: `nano ~/voice-satellite/config.env` |
+| PowerShell `$env:` not working | Use single quotes around values: `$env:OPENAI_API_KEY='sk-...'`. Set on a separate line, not inline. |
+| `latin-1 codec` encoding error | Config file has invisible special characters. Re-create it: delete and re-edit with `nano` |
 
 ## Roadmap
 
