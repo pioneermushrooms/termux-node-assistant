@@ -59,13 +59,25 @@ OPENAI_API_KEY=sk-your-key LLM_PROVIDER=ollama python server.py
 
 > Free LLM via Ollama, cloud STT via OpenAI Whisper (~$0.006 per 30s of audio). Best quality-to-cost ratio.
 
-**Option D: Any OpenAI-compatible API (LM Studio, vLLM, llama.cpp server)**
+**Option D: llama.cpp (run any GGUF model — Gemma, Llama, Mistral, etc.)**
+```bash
+# Download a GGUF model from HuggingFace, then:
+llama-server -m gemma-4-12b-it-Q4_K_M.gguf --port 8080
+
+# In another terminal:
+pip install flask openai faster-whisper
+LLM_BASE_URL=http://localhost:8080/v1 LLM_MODEL=gemma-4 python server.py
+```
+
+> llama.cpp runs any GGUF model locally — Gemma 4, Llama 3, Mistral, Phi, Qwen, etc. Combined with local Whisper STT, this is a **zero-cloud, zero-cost, fully private** voice assistant. No data ever leaves your network.
+
+**Option E: Any other OpenAI-compatible API**
 ```bash
 pip install flask openai faster-whisper
 LLM_BASE_URL=http://my-server:8080/v1 LLM_MODEL=my-model python server.py
 ```
 
-> Works with llama.cpp (`llama-server`), LM Studio, vLLM, text-generation-webui — anything that serves an OpenAI-compatible `/v1/chat/completions` endpoint.
+> Works with LM Studio, vLLM, text-generation-webui — anything that serves an OpenAI-compatible `/v1/chat/completions` endpoint.
 
 **Once the server starts, you'll see:**
 ```
