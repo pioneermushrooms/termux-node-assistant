@@ -231,9 +231,113 @@ def health():
     return jsonify({"status": "ok", "llm": LLM_PROVIDER, "model": LLM_MODEL, "stt": STT_PROVIDER})
 
 
+# ── STT + wake-word logic shared by /voice and /transcribe ─────
+
+def _stt_and_classify(audio_bytes: bytes, wake_word: str, filename: str = "audio.wav") -> dict:
+    """Run STT + wake-word check. Pure: no LLM call.
+
+    Returns a dict with keys: transcript, silence, wake_word_detected, command,
+    awaiting_command, error (only on STT failure).
+    """
+    transcript = _transcribe(audio_bytes, filename=filename)
+    if transcript.startswith("[STT Error"):
+        return {"error": transcript}
+
+    # Silence / noise short-circuit
+    stripped = re.sub(r"[\s\.,!?\-]", "", transcript or "").lower()
+    word_count = len([w for w in re.findall(r"[a-z]+", (transcript or "").lower()) if len(w) > 1])
+    is_silence_token = stripped in {"silence", "you", "thankyou", "thanks", "bye", ""}
+    too_short = word_count < 2 and len(stripped) < 8
+    if is_silence_token or too_short:
+        return {"transcript": transcript, "silence": True, "wake_word_detected": False, "command": ""}
+
+    # Wake word matching
+    wake_word = (wake_word or "").lower()
+    normalized = re.sub(r"[^a-z0-9 ]", "", transcript.lower())
+    wake_normalized = re.sub(r"[^a-z0-9 ]", "", wake_word)
+    if wake_normalized and wake_normalized not in normalized:
+        return {"transcript": transcript, "silence": False, "wake_word_detected": False, "command": ""}
+
+    # Extract command after wake word
+    command = transcript
+    awaiting_command = False
+    if wake_normalized:
+        wake_words = wake_normalized.split()
+        pattern = r"(?i)" + r"[^a-zA-Z0-9]*".join(re.escape(w) for w in wake_words)
+        parts = re.split(pattern, transcript, maxsplit=1)
+        command = parts[1].lstrip(" ,.:;!?-") if len(parts) > 1 else ""
+        if not command:
+            awaiting_command = True
+
+    return {
+        "transcript": transcript,
+        "silence": False,
+        "wake_word_detected": True,
+        "command": command,
+        "awaiting_command": awaiting_command,
+    }
+
+
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    """Fast endpoint: STT + wake-word check only, no LLM. ~500ms response.
+
+    The satellite uses this to decide whether to play a wake-word-detected beep
+    BEFORE waiting on the slow LLM. If the wake word matched, the satellite
+    follows up with /chat to run the actual command.
+    """
+    if not _check_auth():
+        return jsonify({"error": "unauthorized"}), 401
+
+    node_id = request.form.get("node_id", "unknown")
+    wake_word = request.form.get("wake_word", "").lower()
+
+    audio_file = request.files.get("audio")
+    if not audio_file:
+        return jsonify({"error": "no audio file"}), 400
+    audio_bytes = audio_file.read()
+    if len(audio_bytes) > 10 * 1024 * 1024:
+        return jsonify({"error": "audio too large"}), 400
+
+    result = _stt_and_classify(audio_bytes, wake_word, filename=audio_file.filename or "audio.wav")
+    if "error" in result:
+        return jsonify({"error": result["error"]}), 500
+    result["node_id"] = node_id
+    logger.info(f"[{node_id}] /transcribe: \"{result['transcript']}\" wake={result['wake_word_detected']}")
+    return jsonify(result)
+
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    """Run the LLM on a pre-transcribed command. Slow (LLM time)."""
+    if not _check_auth():
+        return jsonify({"error": "unauthorized"}), 401
+    payload = request.get_json(silent=True) or {}
+    command = payload.get("command", "").strip()
+    if not command:
+        return jsonify({"error": "no command"}), 400
+    node_id = payload.get("node_id", "unknown")
+    context = payload.get("context", "")
+    want_audio = bool(payload.get("tts", False))
+
+    logger.info(f"[{node_id}] /chat: \"{command[:80]}\"")
+    result = _chat(command, context=context)
+    response = {"text": result, "command": command, "node_id": node_id}
+    if want_audio:
+        audio_b64 = _generate_tts(result)
+        if audio_b64:
+            response["audio_base64"] = audio_b64
+            response["audio_format"] = "mp3"
+    return jsonify(response)
+
+
 @app.route("/voice", methods=["POST"])
 def voice():
-    """Main endpoint: accepts audio, transcribes, chats, returns response."""
+    """Legacy single-shot endpoint: STT + wake check + LLM in one round-trip.
+
+    Kept for satellites that haven't been updated to the two-call flow.
+    New satellites should call /transcribe then /chat for fast wake-word feedback.
+    """
     if not _check_auth():
         return jsonify({"error": "unauthorized"}), 401
 
@@ -242,60 +346,37 @@ def voice():
     context = request.form.get("context", "")
     want_audio = request.form.get("tts", "false").lower() == "true"
 
-    # Rate limit
     now = time.time()
     last = _last_request.get(node_id, 0)
     if now - last < COOLDOWN:
         return jsonify({"error": "rate limited"}), 429
     _last_request[node_id] = now
 
-    # Get audio
     audio_file = request.files.get("audio")
     if not audio_file:
         return jsonify({"error": "no audio file"}), 400
-
     audio_bytes = audio_file.read()
     if len(audio_bytes) > 10 * 1024 * 1024:
         return jsonify({"error": "audio too large"}), 400
 
-    # Transcribe
-    transcript = _transcribe(audio_bytes, filename=audio_file.filename or "audio.wav")
-    if transcript.startswith("[STT Error"):
-        return jsonify({"error": transcript}), 500
+    classified = _stt_and_classify(audio_bytes, wake_word, filename=audio_file.filename or "audio.wav")
+    if "error" in classified:
+        return jsonify({"error": classified["error"]}), 500
+    classified["node_id"] = node_id
 
-    logger.info(f"[{node_id}] Heard: \"{transcript}\"")
+    if classified.get("silence"):
+        logger.info(f"[{node_id}] Skipping noise/silence: \"{classified['transcript']}\"")
+        return jsonify({**classified, "text": ""})
 
-    # Wake word check (punctuation-insensitive)
-    normalized = re.sub(r"[^a-z0-9 ]", "", transcript.lower())
-    wake_normalized = re.sub(r"[^a-z0-9 ]", "", wake_word)
+    if not classified["wake_word_detected"] or classified.get("awaiting_command"):
+        return jsonify({**classified, "text": ""})
 
-    if wake_normalized and wake_normalized not in normalized:
-        return jsonify({"text": "", "transcript": transcript, "wake_word_detected": False, "node_id": node_id})
+    command = classified["command"]
+    logger.info(f"[{node_id}] Heard: \"{classified['transcript']}\" — command: \"{command}\"")
 
-    # Extract command after wake word
-    command = transcript
-    if wake_normalized:
-        wake_words = wake_normalized.split()
-        pattern = r"(?i)" + r"[^a-zA-Z0-9]*".join(re.escape(w) for w in wake_words)
-        parts = re.split(pattern, transcript, maxsplit=1)
-        if len(parts) > 1:
-            command = parts[1].lstrip(" ,.:;!?-")
-        else:
-            command = ""
-
-        if not command:
-            return jsonify({"text": "", "transcript": transcript, "wake_word_detected": True,
-                            "awaiting_command": True, "node_id": node_id})
-
-    logger.info(f"[{node_id}] Command: \"{command}\"")
-
-    # Chat with LLM
     result = _chat(command, context=context)
     logger.info(f"[{node_id}] Response: {result[:100]}")
-
-    response = {"text": result, "transcript": transcript, "command": command,
-                "wake_word_detected": True, "node_id": node_id}
-
+    response = {**classified, "text": result}
     if want_audio:
         audio_b64 = _generate_tts(result)
         if audio_b64:

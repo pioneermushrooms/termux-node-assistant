@@ -127,16 +127,61 @@ def _to_wav(frames: list[bytes]) -> bytes:
 
 # ── Server communication ────────────────────────────────────
 
+def _auth_headers() -> dict:
+    return {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
+
+
+def _send_transcribe(wav: bytes, wake_word: str = "") -> dict:
+    """Fast: STT + wake-word check on the server. ~500ms.
+
+    Returns: transcript, silence, wake_word_detected, command, awaiting_command.
+    Use this to decide whether to play a wake-word beep BEFORE waiting on the LLM.
+    """
+    try:
+        r = http.post(
+            f"{SERVER_URL}/transcribe",
+            files={"audio": ("speech.wav", wav, "audio/wav")},
+            data={"node_id": NODE_ID, "wake_word": wake_word},
+            headers=_auth_headers(), timeout=60,
+        )
+        if r.status_code == 429:
+            return {"error": "rate_limited", "speak": "Hold on, try again in a few seconds."}
+        r.raise_for_status()
+        return r.json()
+    except http.exceptions.ConnectionError:
+        return {"error": "no_connection", "speak": "Can't reach the server."}
+    except http.exceptions.Timeout:
+        return {"error": "timeout", "speak": "That took too long. Try again."}
+    except Exception as e:
+        return {"error": str(e), "speak": "Something went wrong."}
+
+
+def _send_chat(command: str, context: str = "") -> dict:
+    """Slow: run the LLM on a pre-transcribed command. Seconds to tens of seconds."""
+    try:
+        r = http.post(
+            f"{SERVER_URL}/chat",
+            json={"node_id": NODE_ID, "command": command, "context": context, "tts": False},
+            headers=_auth_headers(), timeout=300,
+        )
+        r.raise_for_status()
+        return r.json()
+    except http.exceptions.ConnectionError:
+        return {"error": "no_connection", "speak": "Can't reach the server."}
+    except http.exceptions.Timeout:
+        return {"error": "timeout", "speak": "That took too long. Try again."}
+    except Exception as e:
+        return {"error": str(e), "speak": "Something went wrong."}
+
+
 def _send(wav: bytes, wake_word: str = "", context: str = "") -> dict:
-    headers = {}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {API_KEY}"
+    """Legacy single-shot. Kept for callers that still use it."""
     try:
         r = http.post(
             f"{SERVER_URL}/voice",
             files={"audio": ("speech.wav", wav, "audio/wav")},
             data={"node_id": NODE_ID, "wake_word": wake_word, "context": context, "tts": "false"},
-            headers=headers, timeout=300,
+            headers=_auth_headers(), timeout=300,
         )
         if r.status_code == 429:
             return {"error": "rate_limited", "speak": "Hold on, try again in a few seconds."}
@@ -217,7 +262,8 @@ def main():
             dur = len(frames) * CHUNK / RATE
             print(f"  [*] Recorded {dur:.1f}s, sending...")
 
-            resp = _send(_to_wav(frames), wake_word=WAKE_WORD)
+            # Stage 1: fast STT + wake-word check (~500ms)
+            resp = _send_transcribe(_to_wav(frames), wake_word=WAKE_WORD)
 
             if "error" in resp:
                 print(f"  [!] {resp['error']}")
@@ -233,7 +279,7 @@ def main():
                 print(f"  [.] No wake word")
                 continue
 
-            # Wake word detected
+            # 🔔 Wake word detected — beep IMMEDIATELY before LLM call
             _beep(880, 120)
 
             if resp.get("awaiting_command"):
@@ -243,8 +289,7 @@ def main():
                     _beep(400, 100)
                     continue
                 print(f"  [*] Checking...")
-                _speak("Checking.")
-                resp = _send(_to_wav(frames), wake_word="")
+                resp = _send_transcribe(_to_wav(frames), wake_word="")
                 if "error" in resp:
                     print(f"  [!] {resp['error']}")
                     continue
@@ -252,10 +297,20 @@ def main():
                 if transcript:
                     print(f"  [>] \"{transcript}\"")
 
-            text = resp.get("text", "")
+            cmd = resp.get("command", transcript)
+            if not cmd:
+                continue
+
+            # Stage 2: send command to LLM (slow)
+            print(f"  [cmd] {cmd}")
+            chat_resp = _send_chat(cmd)
+            if "error" in chat_resp:
+                print(f"  [!] {chat_resp['error']}")
+                if chat_resp.get("speak"):
+                    _speak(chat_resp["speak"], stream)
+                continue
+            text = chat_resp.get("text", "")
             if text:
-                cmd = resp.get("command", transcript)
-                print(f"  [cmd] {cmd}")
                 print(f"  [<<] {text[:150]}{'...' if len(text) > 150 else ''}")
                 _speak(text, stream)
 
@@ -295,7 +350,8 @@ def _session(stream, ctx: str):
         dur = len(frames) * CHUNK / RATE
         print(f"  [*] {dur:.1f}s, sending...")
 
-        resp = _send(_to_wav(frames), wake_word="", context=ctx)
+        # Stage 1: fast STT (no wake word inside session)
+        resp = _send_transcribe(_to_wav(frames), wake_word="")
         if "error" in resp:
             print(f"  [!] {resp['error']}")
             if resp.get("speak"):
@@ -303,9 +359,11 @@ def _session(stream, ctx: str):
             idle = time.time()
             continue
 
-        transcript = resp.get("transcript", "")
-        text = resp.get("text", "")
+        if resp.get("silence"):
+            # Whisper heard nothing real — don't ack, just resume listening
+            continue
 
+        transcript = resp.get("transcript", "")
         if transcript:
             print(f"  [>] \"{transcript}\"")
 
@@ -320,6 +378,18 @@ def _session(stream, ctx: str):
             print(f"\nListening... say \"{WAKE_WORD}\" to start.\n")
             return
 
+        # 🔔 Got a real transcript — beep before LLM call
+        _beep(880, 80)
+
+        # Stage 2: send command to LLM (slow)
+        chat_resp = _send_chat(transcript, context=ctx)
+        if "error" in chat_resp:
+            print(f"  [!] {chat_resp['error']}")
+            if chat_resp.get("speak"):
+                _speak(chat_resp["speak"])
+            idle = time.time()
+            continue
+        text = chat_resp.get("text", "")
         if text:
             print(f"  [<<] {text[:150]}{'...' if len(text) > 150 else ''}")
             _speak(text, stream)
